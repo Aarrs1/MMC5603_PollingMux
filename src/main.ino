@@ -1,8 +1,8 @@
 #include <Wire.h>
 #include <Arduino.h>
 
-#define I2C_ADDR_1 0xE0  // 第一个多路复用器的I2C地址
-#define I2C_ADDR_2 0xE6  // 第二个多路复用器的I2C地址
+#define I2C_ADDR_1 0x70  // 第一个多路复用器的I2C地址（7位）
+#define I2C_ADDR_2 0x73  // 第二个多路复用器的I2C地址（7位）
 #define SDA_PIN 3      // SDA引脚
 #define SCL_PIN 8      // SCL引脚
 #define MMC5603_ADDR 0x30  // MMC5603传感器的I2C地址
