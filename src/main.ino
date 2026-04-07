@@ -100,15 +100,15 @@ void readSensorData(uint8_t mux_addr, uint8_t channel, uint32_t *x, uint32_t *y,
   // 拼接数据
   *x = ((uint32_t)buf[0] << 12) |
        ((uint32_t)buf[1] << 4)  |
-       ((uint32_t)(buf[6] >> 4));
+       ((uint32_t)(buf[6] & 0x0F));
 
   *y = ((uint32_t)buf[2] << 12) |
        ((uint32_t)buf[3] << 4)  |
-       ((uint32_t)(buf[7] >> 4));
+       ((uint32_t)(buf[7] & 0x0F));
 
   *z = ((uint32_t)buf[4] << 12) |
        ((uint32_t)buf[5] << 4)  |
-       ((uint32_t)(buf[8] >> 4));
+       ((uint32_t)(buf[8] & 0x0F));
 }
 
 void loop() {
@@ -133,7 +133,7 @@ void loop() {
     // 第2阶段：非阻塞等待
     // 转换时间1.2ms + I2C/MUX开销 ≈ 1.5-1.8ms
     // 工程建议：2000µs（保证最慢器件完成）
-    if (micros() - t_start > 2000) {
+    if (micros() - t_start > 5000) {
       state = READ;
     }
   }
