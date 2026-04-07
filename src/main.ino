@@ -106,7 +106,7 @@ void loop(){
         state = WAIT;
     }
     else if(state == WAIT){
-        if(micros()-t_start > 2000){ // 2ms即可测量完成
+        if(micros()-t_start > 4000){ // 4ms即可测量完成
             state = READ;
         }
     }
