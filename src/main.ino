@@ -1,168 +1,134 @@
 #include <Wire.h>
 #include <Arduino.h>
 
-#define I2C_ADDR_1 0x70  // 第一个多路复用器的I2C地址（7位）
-#define I2C_ADDR_2 0x73  // 第二个多路复用器的I2C地址（7位）
-#define SDA_PIN 3      // SDA引脚
-#define SCL_PIN 8      // SCL引脚
-#define MMC5603_ADDR 0x30  // MMC5603传感器的I2C地址
+// 多路复用器地址
+#define I2C_ADDR_1 0x70  // I2C总线0
+#define I2C_ADDR_2 0x73  // I2C总线1
 
-// 状态机枚举
-enum State {
-  START_MEASURE,  // 启动所有传感器测量
-  WAIT,           // 等待测量完成（非阻塞）
-  READ            // 读取所有传感器数据
-};
+// I2C引脚
+#define SDA1_PIN 3
+#define SCL1_PIN 8
+#define SDA2_PIN 9
+#define SCL2_PIN 10
 
-State state = START_MEASURE;// 初始状态
-uint32_t t_start;// 测量开始时间戳
+#define MMC5603_ADDR 0x30  // 传感器地址
 
-// 数据缓冲区（储存16个传感器的数据）
-struct SensorData {
-  uint32_t x, y, z;
-} sensor_data[16];
+// 第二条I2C总线实例
+TwoWire I2Cone = TwoWire(1);
 
-void writeReg(uint8_t reg, uint8_t val) {// 写寄存器函数
-    Wire.beginTransmission(MMC5603_ADDR);// 开始I2C通信
-    Wire.write(reg);// 发送寄存器地址
-    Wire.write(val);// 发送寄存器值
-    Wire.endTransmission();// 结束I2C通信
+// 状态机
+enum State { START_MEASURE, WAIT, READ };
+State state = START_MEASURE;
+uint32_t t_start;
+
+// 数据缓冲区
+struct SensorData { uint32_t x, y, z; } sensor_data[16];
+
+// ---------- I2C操作函数 ----------
+void writeReg(TwoWire &bus, uint8_t reg, uint8_t val){
+    bus.beginTransmission(MMC5603_ADDR);
+    bus.write(reg);
+    bus.write(val);
+    bus.endTransmission();
 }
 
-uint8_t readReg(uint8_t reg) {// 读寄存器函数
-    Wire.beginTransmission(MMC5603_ADDR);// 开始I2C通信
-    Wire.write(reg);
-    Wire.endTransmission(false);
-
-    Wire.requestFrom((uint8_t)MMC5603_ADDR, (uint8_t)1);// 请求读取1字节数据
-    return Wire.read();
+uint8_t readReg(TwoWire &bus, uint8_t reg){
+    bus.beginTransmission(MMC5603_ADDR);
+    bus.write(reg);
+    bus.endTransmission(false);
+    bus.requestFrom((uint8_t)MMC5603_ADDR, (uint8_t)1);
+    return bus.read();
 }
 
-void readMulti(uint8_t reg, uint8_t* buf, uint8_t len) {// 读多个寄存器函数
-    Wire.beginTransmission(MMC5603_ADDR);
-    Wire.write(reg);
-    Wire.endTransmission(false);
+void readMulti(TwoWire &bus, uint8_t reg, uint8_t* buf, uint8_t len){
+    bus.beginTransmission(MMC5603_ADDR);
+    bus.write(reg);
+    bus.endTransmission(false);
+    bus.requestFrom((uint8_t)MMC5603_ADDR, len);
+    for(int i=0;i<len;i++) buf[i] = bus.read();
+}
 
-    Wire.requestFrom((uint8_t)MMC5603_ADDR, len);// 请求读取len字节数据
-    for (int i = 0; i < len; i++) {
-        buf[i] = Wire.read();
+// ---------- 多路复用器 ----------
+void selectChannel(TwoWire &bus, uint8_t addr, uint8_t channel){
+    uint8_t controlByte = 1 << channel;
+    bus.beginTransmission(addr);
+    bus.write(controlByte);
+    bus.endTransmission();
+    delayMicroseconds(5);
+}
+
+// ---------- 传感器测量 ----------
+void startMeasurement(TwoWire &bus, uint8_t mux_addr, uint8_t channel){
+    selectChannel(bus, mux_addr, channel);
+    writeReg(bus, 0x1B, 0x21); // 启动测量 + 自动去磁
+}
+
+void readSensorData(TwoWire &bus, uint8_t mux_addr, uint8_t channel, uint32_t *x, uint32_t *y, uint32_t *z){
+    selectChannel(bus, mux_addr, channel);
+    uint8_t buf[9];
+    readMulti(bus, 0x00, buf, 9);
+    *x = ((uint32_t)buf[0]<<12) | ((uint32_t)buf[1]<<4) | (buf[6]&0x0F);
+    *y = ((uint32_t)buf[2]<<12) | ((uint32_t)buf[3]<<4) | (buf[7]&0x0F);
+    *z = ((uint32_t)buf[4]<<12) | ((uint32_t)buf[5]<<4) | (buf[8]&0x0F);
+}
+
+// ---------- 初始化 ----------
+void setup(){
+    Serial.begin(921600);
+    Wire.begin(SDA1_PIN, SCL1_PIN, 400000);
+    I2Cone.begin(SDA2_PIN, SCL2_PIN, 400000);
+    delay(10);
+
+    // 初始化传感器
+    for(uint8_t mux=0; mux<2; mux++){
+        TwoWire &bus = (mux==0)?Wire:I2Cone;
+        uint8_t addr = (mux==0)?I2C_ADDR_1:I2C_ADDR_2;
+        for(uint8_t ch=0; ch<8; ch++){
+            selectChannel(bus, addr, ch);
+            writeReg(bus, 0x1C, 0x03); // 最大带宽
+            writeReg(bus, 0x1B, 0x20); // 自动去磁
+        }
     }
+    Serial.println("Two I2C Buses & MMC5603 Initialized");
 }
 
-// 初始化I2C
-void setup() {
-  Serial.begin(921600);
-  Wire.begin(SDA_PIN, SCL_PIN, 400000);  // 设置SDA和SCL引脚，400kHz速率
-  delay(10);
-  
-  // 初始化所有MMC5603传感器
-  for (uint8_t mux = 0; mux < 2; mux++) {
-    uint8_t addr = (mux == 0) ? I2C_ADDR_1 : I2C_ADDR_2;
-    for (uint8_t ch = 0; ch < 8; ch++) {
-      selectChannel(addr, ch);
-      writeReg(0x1C, 0x03);      // BW=11, 带宽最大 → 测量时间~1.2ms
-      writeReg(0x1B, 0x20);      // Auto_SR_en=1, 启用自动SET/RESET（自动去磁）
+// ---------- 主循环 ----------
+void loop(){
+    if(state == START_MEASURE){
+        // 同时启动两条总线的传感器测量
+        for(uint8_t i=0;i<16;i++){
+            TwoWire &bus = (i<8)?Wire:I2Cone;
+            uint8_t addr = (i<8)?I2C_ADDR_1:I2C_ADDR_2;
+            uint8_t ch = i%8;
+            startMeasurement(bus, addr, ch);
+        }
+        t_start = micros();
+        state = WAIT;
     }
-  }
-  
-  Serial.println("I2C Multiplexer & MMC5603 Initialized with Auto SET/RESET");
-}
-
-// 启用指定通道
-void selectChannel(uint8_t addr, uint8_t channel) {
-  uint8_t controlByte = 0;  // 初始化控制字节，所有位先置为0
-
-  // 设置对应通道的位为1
-  // 例如：如果选择第3个通道，那么控制字节应该是 0b00001000 (即8)
-  controlByte = 1 << channel;  // 左移1到指定的通道位置
-  
-  // 通过I2C发送控制字节
-  Wire.beginTransmission(addr);  // 向指定I2C地址发送数据
-  Wire.write(controlByte);       // 发送控制字节，启用选定的通道
-  Wire.endTransmission();        // 结束I2C通信
-  delayMicroseconds(5);          // MUX切换延迟（PCA9548A < 1µs）
-}
-
-// 启动单个传感器测量
-void startMeasurement(uint8_t mux_addr, uint8_t channel) {
-  selectChannel(mux_addr, channel);
-  writeReg(0x1B, 0x21);  // bit0=1(Take_meas_M) + bit5=1(Auto_SR_en)
-}
-
-// 读取单个传感器数据（不等待）
-void readSensorData(uint8_t mux_addr, uint8_t channel, uint32_t *x, uint32_t *y, uint32_t *z) {
-  selectChannel(mux_addr, channel);
-
-  // 读取数据
-  uint8_t buf[9];
-  readMulti(0x00, buf, 9);
-
-  // 拼接数据
-  *x = ((uint32_t)buf[0] << 12) |
-       ((uint32_t)buf[1] << 4)  |
-       ((uint32_t)(buf[6] & 0x0F));
-
-  *y = ((uint32_t)buf[2] << 12) |
-       ((uint32_t)buf[3] << 4)  |
-       ((uint32_t)(buf[7] & 0x0F));
-
-  *z = ((uint32_t)buf[4] << 12) |
-       ((uint32_t)buf[5] << 4)  |
-       ((uint32_t)(buf[8] & 0x0F));
-       // 注意：数据格式为20位，最高4位在buf[6-8]的低4位中
-  // 以上读取函数不检查数据是否准备好，依赖于测量时间和状态机的设计来保证数据有效性
-}
-
-void loop() {
-  // 非阻塞状态机（16个传感器并行测量）
-  
-  if (state == START_MEASURE) {
-    // 第1阶段：一次性启动全部16个传感器的测量
-    for (uint8_t i = 0; i < 16; i++) {
-      uint8_t mux_idx = i / 8;
-      uint8_t ch = i % 8;
-      uint8_t addr = (mux_idx == 0) ? I2C_ADDR_1 : I2C_ADDR_2;
-      
-      startMeasurement(addr, ch);
+    else if(state == WAIT){
+        if(micros()-t_start > 2000){ // 2ms即可测量完成
+            state = READ;
+        }
     }
-    
-    // 记录时间戳，转入等待状态
-    t_start = micros();
-    state = WAIT;
-  }
-  
-  else if (state == WAIT) {
-    // 第2阶段：非阻塞等待
-    // 转换时间1.2ms + I2C/MUX开销 ≈ 1.5-1.8ms
-    // 工程建议：2000µs（保证最慢器件完成）
-    if (micros() - t_start > 5000) {
-      state = READ;
+    else if(state == READ){
+        // 同时读取16个传感器数据
+        for(uint8_t i=0;i<16;i++){
+            TwoWire &bus = (i<8)?Wire:I2Cone;
+            uint8_t addr = (i<8)?I2C_ADDR_1:I2C_ADDR_2;
+            uint8_t ch = i%8;
+            readSensorData(bus, addr, ch, &sensor_data[i].x, &sensor_data[i].y, &sensor_data[i].z);
+        }
+
+        // 输出CSV
+        Serial.print("F,");
+        for(uint8_t i=0;i<16;i++){
+            Serial.print(sensor_data[i].x); Serial.write(',');
+            Serial.print(sensor_data[i].y); Serial.write(',');
+            Serial.print(sensor_data[i].z);
+            if(i<15) Serial.write(',');
+        }
+        Serial.println();
+
+        state = START_MEASURE; // 循环
     }
-  }
-  
-  else if (state == READ) {
-    // 第3阶段：一次性读取全部16个传感器数据
-    for (uint8_t i = 0; i < 16; i++) {
-      uint8_t mux_idx = i / 8;
-      uint8_t ch = i % 8;
-      uint8_t addr = (mux_idx == 0) ? I2C_ADDR_1 : I2C_ADDR_2;
-      
-      readSensorData(addr, ch, &sensor_data[i].x, &sensor_data[i].y, &sensor_data[i].z);
-    }
-    
-    // 输出一行帧数据（CSV格式）- 避免printf的格式解析开销
-    Serial.print("F,");
-    for (uint8_t i = 0; i < 16; i++) {
-      Serial.print(sensor_data[i].x);
-      Serial.write(',');
-      Serial.print(sensor_data[i].y);
-      Serial.write(',');
-      Serial.print(sensor_data[i].z);
-      if (i < 15) Serial.write(',');
-    }
-    Serial.println();
-    
-    // 回到START_MEASURE状态，循环
-    state = START_MEASURE;
-  }
 }
