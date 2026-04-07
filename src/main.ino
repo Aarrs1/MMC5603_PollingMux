@@ -14,8 +14,8 @@ enum State {
   READ            // 读取所有传感器数据
 };
 
-State state = START_MEASURE;
-uint32_t t_start;
+State state = START_MEASURE;// 初始状态
+uint32_t t_start;// 测量开始时间戳
 
 // 数据缓冲区（储存16个传感器的数据）
 struct SensorData {
@@ -23,18 +23,18 @@ struct SensorData {
 } sensor_data[16];
 
 void writeReg(uint8_t reg, uint8_t val) {// 写寄存器函数
-    Wire.beginTransmission(MMC5603_ADDR);
-    Wire.write(reg);
-    Wire.write(val);
-    Wire.endTransmission();
+    Wire.beginTransmission(MMC5603_ADDR);// 开始I2C通信
+    Wire.write(reg);// 发送寄存器地址
+    Wire.write(val);// 发送寄存器值
+    Wire.endTransmission();// 结束I2C通信
 }
 
 uint8_t readReg(uint8_t reg) {// 读寄存器函数
-    Wire.beginTransmission(MMC5603_ADDR);
+    Wire.beginTransmission(MMC5603_ADDR);// 开始I2C通信
     Wire.write(reg);
     Wire.endTransmission(false);
 
-    Wire.requestFrom((uint8_t)MMC5603_ADDR, (uint8_t)1);
+    Wire.requestFrom((uint8_t)MMC5603_ADDR, (uint8_t)1);// 请求读取1字节数据
     return Wire.read();
 }
 
@@ -43,7 +43,7 @@ void readMulti(uint8_t reg, uint8_t* buf, uint8_t len) {// 读多个寄存器函
     Wire.write(reg);
     Wire.endTransmission(false);
 
-    Wire.requestFrom((uint8_t)MMC5603_ADDR, len);
+    Wire.requestFrom((uint8_t)MMC5603_ADDR, len);// 请求读取len字节数据
     for (int i = 0; i < len; i++) {
         buf[i] = Wire.read();
     }
@@ -109,6 +109,8 @@ void readSensorData(uint8_t mux_addr, uint8_t channel, uint32_t *x, uint32_t *y,
   *z = ((uint32_t)buf[4] << 12) |
        ((uint32_t)buf[5] << 4)  |
        ((uint32_t)(buf[8] & 0x0F));
+       // 注意：数据格式为20位，最高4位在buf[6-8]的低4位中
+  // 以上读取函数不检查数据是否准备好，依赖于测量时间和状态机的设计来保证数据有效性
 }
 
 void loop() {
