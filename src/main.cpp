@@ -2,14 +2,14 @@
 #include <Arduino.h>
 
 // 多路复用器地址
-#define I2C_ADDR_1 0x70  // I2C总线0
-#define I2C_ADDR_2 0x73  // I2C总线1
+#define I2C_ADDR_1 0x77  // I2C总线0
+#define I2C_ADDR_2 0x77  // I2C总线1
 
 // I2C引脚
-#define SDA1_PIN 3
-#define SCL1_PIN 8
-#define SDA2_PIN 9
-#define SCL2_PIN 10
+#define SDA1_PIN 12
+#define SCL1_PIN 11
+#define SDA2_PIN 3
+#define SCL2_PIN 8
 
 #define MMC5603_ADDR 0x30  // 传感器地址
 
@@ -77,16 +77,19 @@ void setup(){
     Serial.begin(921600);
     Wire.begin(SDA1_PIN, SCL1_PIN, 400000);
     I2Cone.begin(SDA2_PIN, SCL2_PIN, 400000);
-    delay(10);
+    //delay(1000);
+    Serial.println("Starting Initialization...");
 
     // 初始化传感器
     for(uint8_t mux=0; mux<2; mux++){
         TwoWire &bus = (mux==0)?Wire:I2Cone;
         uint8_t addr = (mux==0)?I2C_ADDR_1:I2C_ADDR_2;
         for(uint8_t ch=0; ch<8; ch++){
+            Serial.print("Initializing channel "); Serial.println(ch);
             selectChannel(bus, addr, ch);
             writeReg(bus, 0x1C, 0x03); // 最大带宽
             writeReg(bus, 0x1B, 0x20); // 自动去磁
+            Serial.println("Initialization complete for channel "); Serial.println(ch);
         }
     }
     Serial.println("Two I2C Buses & MMC5603 Initialized");
@@ -106,7 +109,7 @@ void loop(){
         state = WAIT;
     }
     else if(state == WAIT){
-        if(micros()-t_start > 4000){ // 4ms即可测量完成
+        if(micros()-t_start > 3800){ // 4ms即可测量完成
             state = READ;
         }
     }
